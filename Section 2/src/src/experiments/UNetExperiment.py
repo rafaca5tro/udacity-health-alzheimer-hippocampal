@@ -19,9 +19,12 @@ from utils.volume_stats import Dice3d, Jaccard3d
 from networks.RecursiveUNet import UNet
 from inference.UNetInferenceAgent import UNetInferenceAgent
 
+
 class UNetExperiment:
     """
-    This class implements the basic life cycle for a segmentation task with UNet(https://arxiv.org/abs/1505.04597).
+    This class implements the basic life cycle for a segmentation task with UNet.
+    Reference: https://arxiv.org/abs/1505.04597
+
     The basic life cycle of a UNetExperiment is:
         run():
             for epoch in n_epochs:
@@ -43,9 +46,6 @@ class UNetExperiment:
         os.makedirs(self.out_dir, exist_ok=True)
 
         # Create data loaders
-        # TASK: SlicesDataset class is not complete. Go to the file and complete it.
-        # Note that we are using a 2D version of UNet here, which means that it will expect
-        # batches of 2D slices.
         self.train_loader = DataLoader(SlicesDataset(dataset[split["train"]]),
                 batch_size=config.batch_size, shuffle=True, num_workers=0)
         self.val_loader = DataLoader(SlicesDataset(dataset[split["val"]]),
@@ -61,22 +61,19 @@ class UNetExperiment:
 
         # Configure our model and other training implements
         # We will use a recursive UNet model from German Cancer Research Center,
-        # Division of Medical Image Computing. It is quite complicated and works
-        # very well on this task. Feel free to explore it or plug in your own model
+        # Division of Medical Image Computing
         self.model = UNet(num_classes=3)
         self.model.to(self.device)
 
-        # We are using a standard cross-entropy loss since the model output is essentially
-        # a tensor with softmax'd prediction of each pixel's probability of belonging
-        # to a certain class
+        # Standard cross-entropy loss for multi-class segmentation
         self.loss_function = torch.nn.CrossEntropyLoss()
 
-        # We are using standard SGD method to optimize our weights
+        # We are using standard Adam optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.learning_rate)
         # Scheduler helps us update learning rate automatically
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min')
 
-        # Set up Tensorboard. By default it saves data into runs folder. You need to launch
+        # Set up Tensorboard. By default it saves data into runs folder
         self.tensorboard_train_writer = SummaryWriter(comment="_train")
         self.tensorboard_val_writer = SummaryWriter(comment="_val")
 
@@ -92,10 +89,6 @@ class UNetExperiment:
         for i, batch in enumerate(self.train_loader):
             self.optimizer.zero_grad()
 
-            # TASK: You have your data in batch variable. Put the slices as 4D Torch Tensors of
-            # shape [BATCH_SIZE, 1, PATCH_SIZE, PATCH_SIZE] into variables data and target.
-            # Feed data to the model and feed target to the loss function
-            #
             data = batch['image']
             target = batch['seg']
 
@@ -107,9 +100,6 @@ class UNetExperiment:
 
             loss = self.loss_function(prediction, target[:, 0, :, :].long().to(self.device))
 
-            # TASK: What does each dimension of variable prediction represent?
-            # ANSWER: The dimensions represent hippocampal volume
-
             loss.backward()
             self.optimizer.step()
 
@@ -119,9 +109,6 @@ class UNetExperiment:
 
                 counter = 100*self.epoch + 100*(i/len(self.train_loader))
 
-                # You don't need to do anything with this function, but you are welcome to
-                # check it out if you want to see how images are logged to Tensorboard
-                # or if you want to output additional debug data
                 log_to_tensorboard(
                     self.tensorboard_train_writer,
                     loss,
@@ -151,15 +138,12 @@ class UNetExperiment:
         with torch.no_grad():
             for i, batch in enumerate(self.val_loader):
 
-                # TASK: Write validation code that will compute loss on a validation sample
-                # I have kept this part similar to suggested training code (given in classroom)
                 data = batch['image']
                 target = batch['seg']
 
                 prediction = self.model(data)
 
                 # We are also getting softmax'd version of prediction to output a probability map
-                # so that we can see how the model converges to the solution
                 prediction_softmax = F.softmax(prediction, dim=1)
 
                 loss = self.loss_function(prediction, target[:, 0, :, :].long().to(self.device))
@@ -199,9 +183,9 @@ class UNetExperiment:
             model_path = path
 
         if os.path.exists(model_path):
-            self.model.load_state_dict(torch.load(model_path))
+            self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         else:
-            raise Exception(f"Could not find path {model_path}")
+            raise FileNotFoundError(f"Could not find path {model_path}")
 
     def run_test(self):
         """
@@ -217,9 +201,6 @@ class UNetExperiment:
         # segmentation. Therefore, unlike train and validation methods, we will do inferences
         # on full 3D volumes, much like we will be doing it when we deploy the model in the
         # clinical environment.
-
-        # TASK: Inference Agent is not complete. Go and finish it. Feel free to test the class
-        # in a module of your own by running it against one of the data samples
         inference_agent = UNetInferenceAgent(model=self.model, device=self.device)
 
         out_dict = {}
@@ -233,24 +214,10 @@ class UNetExperiment:
 
             # We compute and report Dice and Jaccard similarity coefficients which
             # assess how close our volumes are to each other
-
-            # TASK: Dice3D and Jaccard3D functions are not implemented.
-            #  Complete the implementation as we discussed
-            # in one of the course lessons, you can look up definition of Jaccard index
-            # on Wikipedia. If you completed it
-            # correctly (and if you picked your train/val/test split right ;)),
-            # your average Jaccard on your test set should be around 0.80
-
             dc = Dice3d(pred_label, x["seg"])
             jc = Jaccard3d(pred_label, x["seg"])
             dc_list.append(dc)
             jc_list.append(jc)
-
-            # STAND-OUT SUGGESTION: By way of exercise, consider also outputting:
-            # * Sensitivity and specificity (and explain semantic meaning in terms of
-            #   under/over segmenting)
-            # * Dice-per-slice and render combined slices with lowest and highest DpS
-            # * Dice per class (anterior/posterior)
 
             out_dict["volume_stats"].append({
                 "filename": x['filename'],
